@@ -88,6 +88,8 @@ class QuizApp(tk.Tk):
 		self.current_question_index = 0
 		self.selected_answers = []
 		self.start_time = None
+		self.timer_seconds = 180  # 3 minutes = 180 seconds
+		self.timer_job = None
 
 		self.frames: dict[str, tk.Frame] = {}
 		for FrameClass in (StartFrame, QuestionFrame, ScoreFrame):
@@ -114,6 +116,45 @@ class QuizApp(tk.Tk):
 		# Go to first question
 		self.show_frame("QuestionFrame")
 		self.frames["QuestionFrame"].display_question()
+		
+		# Start the timer
+		self.start_timer()
+
+	def start_timer(self):
+		"""Start the 3-minute countdown timer"""
+		self.timer_seconds = 180  # Reset to 3 minutes
+		self.update_timer()
+
+	def update_timer(self):
+		"""Update the timer display and check if time is up"""
+		if self.timer_seconds > 0:
+			# Update timer display in QuestionFrame
+			if hasattr(self.frames["QuestionFrame"], 'update_timer_display'):
+				self.frames["QuestionFrame"].update_timer_display(self.timer_seconds)
+			
+			# Schedule next update in 1 second
+			self.timer_job = self.after(1000, self.update_timer)
+			self.timer_seconds -= 1
+		else:
+			# Time's up! End the quiz
+			self.end_quiz_by_timer()
+
+	def end_quiz_by_timer(self):
+		"""End the quiz when timer runs out"""
+		# Cancel any pending timer updates
+		if self.timer_job:
+			self.after_cancel(self.timer_job)
+			self.timer_job = None
+		
+		# Go to score screen
+		self.show_frame("ScoreFrame")
+		self.frames["ScoreFrame"].display_score()
+
+	def stop_timer(self):
+		"""Stop the timer (when quiz is completed normally)"""
+		if self.timer_job:
+			self.after_cancel(self.timer_job)
+			self.timer_job = None
 
 
 class StartFrame(ttk.Frame):
@@ -175,15 +216,27 @@ class QuestionFrame(ttk.Frame):
 		self.entry_var = None
 		self.entry = None
 		self.progress_label = None
+		self.timer_label = None
 
 	def display_question(self):
 		"""Display the current question"""
-		# Clear previous widgets
+		# Clear previous widgets (except timer)
 		for widget in self.content_frame.winfo_children():
-			widget.destroy()
+			if widget != self.timer_label:  # Keep timer label
+				widget.destroy()
 		
 		# Get current question
 		question = self.controller.quiz_questions[self.controller.current_question_index]
+		
+		# Create timer display only if it doesn't exist
+		if not self.timer_label:
+			self.timer_label = ttk.Label(
+				self.content_frame, 
+				text="Time: 3:00",
+				font=("Segoe UI", 12, "bold"),
+				foreground="red"
+			)
+			self.timer_label.pack(pady=5)
 		
 		# Progress indicator
 		remaining = 5 - self.controller.current_question_index
@@ -259,9 +312,26 @@ class QuestionFrame(ttk.Frame):
 			# More questions - show next one
 			self.display_question()
 		else:
-			# Quiz finished - go to score screen
+			# Quiz finished - stop timer and go to score screen
+			self.controller.stop_timer()
 			self.controller.show_frame("ScoreFrame")
 			self.controller.frames["ScoreFrame"].display_score()
+
+	def update_timer_display(self, seconds_remaining):
+		"""Update the timer display with remaining time"""
+		if self.timer_label:
+			minutes = seconds_remaining // 60
+			seconds = seconds_remaining % 60
+			time_text = f"Time: {minutes}:{seconds:02d}"
+			self.timer_label.config(text=time_text)
+			
+			# Change color to red when time is running low
+			if seconds_remaining <= 30:
+				self.timer_label.config(foreground="red")
+			elif seconds_remaining <= 60:
+				self.timer_label.config(foreground="orange")
+			else:
+				self.timer_label.config(foreground="black")
 
 
 class ScoreFrame(ttk.Frame):
